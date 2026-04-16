@@ -38,8 +38,8 @@ Intention Tower and Knowledge Graph。意义之塔 & 知识图谱。用存分离
 
 ## 目前初步打算
 ### features
-1、人和AI皆可读写，且方便应用 // 事实上，如果不是照顾AI，OneNote的富载体能力太香了，根本不想迁移
-2、方便多端同步、迁移、保存
+1、人和AI皆可读写，且方便应用 // 事实上，如果不是照顾AI，OneNote的富载体能力太香了，根本不想迁移<br>
+2、方便多端同步、迁移、保存<br>
 3、Controllable Chaos
 
 ### Obsidian vaults -> topics
