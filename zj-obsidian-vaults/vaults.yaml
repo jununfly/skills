@@ -1,0 +1,19 @@
+# Obsidian Vaults 配置
+# 所有 vault 都是 zj-obsidian-wiki 维护的独立知识库
+
+vaults:
+  - name: 生活
+    description: 生活知识库
+    path: 生活/
+
+  - name: 工作
+    description: 工作知识库
+    path: 工作/
+
+  - name: 项目
+    description: 项目知识库
+    path: 项目/
+
+  - name: 读书笔记
+    description: 读书笔记知识库
+    path: 读书笔记/
