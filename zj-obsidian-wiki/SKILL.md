@@ -29,7 +29,7 @@ origin: zj
 ```
 vault/
 ├── raw/              # 原始资料（不可变，LLM 只读不写）
-│   └── assets/       # 图片等附件
+│   └── assets/       # 图片、附件（原始资料引用的媒体文件归档于此）
 └── wiki/             # LLM 生成的 wiki 页面
     ├── entities/     # 实体页面（人物、地点、组织）
     ├── concepts/     # 概念页面（想法、理论、方法论）
@@ -45,7 +45,22 @@ vault/
 
 当有新资料时：
 
-1. **保存原始资料** - 将原始资料放入 `raw/` 目录，保持原样
+1. **归档原始资料与附件**
+   - 将源文件复制到 `raw/`，文件名保持原样
+   - **扫描媒体引用**：正则匹配源文件中的所有图片/附件引用，覆盖以下格式：
+     - Obsidian wiki-link：`![[image.png]]`、`![[image.png|alt]]`
+     - Markdown 相对路径：`![alt](./images/img.png)`、`![alt](../assets/img.png)`
+     - Markdown 绝对路径：`![alt](/Users/xxx/img.png)`
+     - HTML 标签：`<img src="...">`
+     - Base64 内嵌：`![alt](data:image/...;base64,...)` → 提取为文件
+   - **定位原始文件**：根据引用类型解析实际文件路径
+     - 相对路径 → 以源文件所在目录为基准拼接
+     - 绝对路径 → 直接使用
+     - Obsidian wiki-link → 在源文件所在目录及其上级搜索
+     - Base64 → 提取为 `raw/assets/<hash>.<ext>`
+   - **复制附件到 `raw/assets/`**：所有定位到的媒体文件统一复制到 `raw/assets/`，保留原始文件名（同名冲突时加序号）
+   - **重写引用路径**：复制后的 md 中，将所有媒体引用统一改写为 `![[filename.ext]]`（Obsidian wiki-link 格式）。Obsidian 会从 `raw/` 向上搜索，自动找到 `raw/assets/` 中的文件，无需指定完整路径
+   - **无法处理的引用**：外部 URL（`https://...`）和无法定位的本地路径，保持原样不修改，记录在摘要页的「备注」中
 2. **阅读并讨论** - 阅读资料，与用户讨论关键要点
 3. **创建资料摘要** - 在 `wiki/sources/` 创建资料摘要页
 4. **更新相关页面** - 更新相关的实体/概念页面，添加交叉引用
