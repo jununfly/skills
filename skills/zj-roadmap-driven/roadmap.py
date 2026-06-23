@@ -26,6 +26,11 @@ STATUS_ICONS = {
 MODE_EXPLORE = "explore"
 MODE_EXPLOIT = "exploit"
 
+MODE_TAG = {
+    MODE_EXPLORE: "[X+]",
+    MODE_EXPLOIT: "[Y+]",
+}
+
 # ── 节点 ID 生成 ──────────────────────────────────────────
 
 def gen_child_id(parent_id: str, index: int) -> str:
@@ -144,6 +149,8 @@ class Roadmap:
         self.data["nodes"][node_id] = node
         self.data["nodes"][parent_id]["children"].append(node_id)
 
+        self._sync_parent_status(node_id)
+
         return node
 
     def update_node(
@@ -171,6 +178,8 @@ class Roadmap:
             node["mode"] = mode
         if notes is not None:
             node["notes"] = notes
+
+        self._sync_parent_status(node_id)
 
         return node
 
@@ -203,6 +212,8 @@ class Roadmap:
         for nid in deleted:
             del self.data["nodes"][nid]
 
+        self._sync_parent_status(node_id)
+
         return deleted
 
     def get_node(self, node_id: str) -> dict:
@@ -233,26 +244,41 @@ class Roadmap:
     # ── 树遍历 ─────────────────────────────────────────
 
     def get_tree(self, root_id: str = "1", max_depth: int = 10) -> str:
-        """生成树形文本视图。"""
+        """生成 Unicode 盒状树形文本视图。"""
         if root_id not in self.data["nodes"]:
             return f"(节点 {root_id} 不存在)"
 
         lines = []
 
-        def _render(nid: str, indent: int, depth: int):
+        def _render(nid: str, prefix: str, is_last: bool, depth: int):
             if depth > max_depth:
                 return
             node = self.data["nodes"].get(nid)
             if not node:
                 return
-            icon = STATUS_ICONS.get(node["status"], "[?]")
-            prefix = "  " * indent
-            mode_tag = f" → {node['mode'].upper()}" if node.get("mode") else ""
-            lines.append(f"{prefix}{icon} {nid}. {node['label']}{mode_tag}")
-            for cid in node.get("children", []):
-                _render(cid, indent + 1, depth + 1)
 
-        _render(root_id, 0, 0)
+            icon = STATUS_ICONS.get(node["status"], "[?]")
+            mode_tag = MODE_TAG.get(node.get("mode"), "")
+            connector = "└── " if is_last else "├── "
+            line = f"{prefix}{connector}{icon}{mode_tag} {nid}. {node['label']}"
+            lines.append(line)
+
+            children = node.get("children", [])
+            for i, cid in enumerate(children):
+                child_is_last = (i == len(children) - 1)
+                child_prefix = prefix + ("    " if is_last else "│   ")
+                _render(cid, child_prefix, child_is_last, depth + 1)
+
+        if root_id in self.data["nodes"]:
+            root = self.data["nodes"][root_id]
+            icon = STATUS_ICONS.get(root["status"], "[?]")
+            mode_tag = MODE_TAG.get(root.get("mode"), "")
+            lines.append(f"{icon}{mode_tag} {root_id}. {root['label']}")
+            children = root.get("children", [])
+            for i, cid in enumerate(children):
+                child_is_last = (i == len(children) - 1)
+                _render(cid, "", child_is_last, 1)
+
         return "\n".join(lines)
 
     def get_path(self, node_id: str) -> list[str]:
@@ -280,23 +306,46 @@ class Roadmap:
                 return nid
         return None
 
+    def _sync_parent_status(self, node_id: str):
+        """自底向上级联同步父节点状态。
+
+        规则：
+        - 全部子节点 completed → 父节点 = completed
+        - 任一子节点非 completed → 父节点 ≠ completed（降为 in_progress）
+        """
+        current = self.data["nodes"].get(node_id)
+        if not current:
+            return
+        parent_id = current.get("parent")
+        while parent_id and parent_id in self.data["nodes"]:
+            parent = self.data["nodes"][parent_id]
+            children = parent.get("children", [])
+            if not children:
+                break
+            all_done = all(
+                self.data["nodes"][cid]["status"] == STATUS_COMPLETED
+                for cid in children if cid in self.data["nodes"]
+            )
+            if all_done:
+                parent["status"] = STATUS_COMPLETED
+            elif parent["status"] == STATUS_COMPLETED:
+                parent["status"] = STATUS_IN_PROGRESS
+            parent_id = parent.get("parent")
+
     # ── Markdown 渲染 ──────────────────────────────────
 
-    def render_markdown_section(self) -> str:
-        """生成 ZJ Roadmap Markdown section 文本。"""
+    def render_full_section(self) -> str:
+        """全量渲染（调试用）：全展开树 + 全部决策表 + 焦点详情。"""
         now = self.data["metadata"].get("updated", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        # 当前施工点
         focus_id = self.get_current_focus()
         focus_line = ""
         if focus_id:
             focus_node = self.data["nodes"][focus_id]
             focus_line = f"> 当前施工: {focus_id}. {focus_node['label']}"
 
-        # 树
-        tree_text = self.get_tree()
+        tree_text = self.get_tree(max_depth=50)
 
-        # 决策表
         all_decisions = self.get_decisions()
         decision_lines = ""
         if all_decisions:
@@ -306,7 +355,6 @@ class Roadmap:
                 note = d.get("note", "")
                 decision_lines += f"| {d['node_id']} | {d['q']} | {d['answer']} | {note} |\n"
 
-        # 当前施工详情
         current_detail = ""
         if focus_id:
             current_detail = f"\n### 当前施工点\n\n**{focus_id}. {self.data['nodes'][focus_id]['label']}**\n"
@@ -331,6 +379,39 @@ class Roadmap:
 
         return section
 
+    def render_light_section(self) -> str:
+        """轻量渲染（Human 视图）：树 depth=2 + 焦点节点展开。"""
+        now = self.data["metadata"].get("updated", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+        tree_text = self.get_tree(max_depth=2)
+
+        focus_id = self.get_current_focus()
+        focus_detail = ""
+        if focus_id:
+            focus_node = self.data["nodes"][focus_id]
+            focus_detail = f"\n### 当前施工：{focus_id}. {focus_node['label']}\n"
+            if focus_node.get("notes"):
+                focus_detail += f"\n{focus_node['notes']}\n"
+            decisions = focus_node.get("decisions", [])
+            if decisions:
+                focus_detail += "\n**决策：**\n"
+                for d in decisions:
+                    note = f" ({d.get('note', '')})" if d.get("note") else ""
+                    focus_detail += f"- Q: {d['q']} → {d['answer']}{note}\n"
+
+        section = f"""<!-- ROADMAP_SECTION_START -->
+## ZJ Roadmap
+
+> 数据文件: `{os.path.basename(self.json_path)}` | 最后更新: {now}
+
+{tree_text}
+<!-- ROADMAP_SECTION_END -->
+"""
+        if focus_detail:
+            section += focus_detail
+
+        return section
+
     def write_markdown_section(self) -> Optional[str]:
         """将 ZJ Roadmap section 写入关联的 md 文件。
 
@@ -342,7 +423,7 @@ class Roadmap:
         if not md_file:
             return None
 
-        section = self.render_markdown_section()
+        section = self.render_light_section()
 
         if os.path.exists(md_file):
             with open(md_file, "r", encoding="utf-8") as f:
@@ -409,116 +490,6 @@ class Roadmap:
                 errors.append(f"节点 {nid}: 无效状态 '{node.get('status')}'")
 
         return errors
-
-    # ── 从现有 ROADMAP.md 导入（最佳努力） ────────────
-
-    def import_from_markdown(self, md_path: str) -> int:
-        """尝试从已有 roadmap md 文件解析并导入。返回导入的节点数。
-        这是一个辅助方法，需要 md 中有明确格式的树形文本。
-        """
-        if not os.path.exists(md_path):
-            raise FileNotFoundError(f"文件不存在: {md_path}")
-
-        with open(md_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # 查找树形文本块
-        start_marker = "<!-- ROADMAP_TREE_START -->"
-        end_marker = "<!-- ROADMAP_TREE_END -->"
-
-        start = content.find(start_marker)
-        end = content.find(end_marker)
-        if start < 0 or end < 0:
-            raise ValueError("md 文件中找不到 ROADMAP_TREE 标记")
-
-        tree_block = content[start + len(start_marker):end].strip()
-        lines = [l for l in tree_block.split("\n") if l.strip()]
-
-        if not lines:
-            return 0
-
-        # 解析缩进
-        root_label = ""
-        self.data = {
-            "title": root_label,
-            "description": "",
-            "version": 1,
-            "nodes": {},
-            "metadata": {
-                "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "md_file": os.path.abspath(md_path),
-            },
-        }
-
-        count = 0
-        id_stack: list[str] = []  # 按深度存放当前路径上的节点 id
-
-        for line in lines:
-            # 跳过空行和注释
-            stripped = line.strip()
-            if not stripped or stripped.startswith("<!--"):
-                continue
-
-            # 计算缩进层级
-            indent = (len(line) - len(line.lstrip())) // 2
-
-            # 解析: [x] 1. label → EXPLORE 或类似
-            # 提取 icon, id, label
-            import re
-            m = re.match(r'\[(.)\]\s+([\d\-]+)\.\s+(.+)', stripped)
-            if not m:
-                continue
-
-            icon = m.group(1)
-            nid = m.group(2)
-            rest = m.group(3)
-
-            # 解析 → MODE
-            mode = MODE_EXPLORE
-            label = rest
-            for m_str, m_val in [("EXPLORE", MODE_EXPLORE), ("EXPLOIT", MODE_EXPLOIT)]:
-                if rest.endswith(f" → {m_str}"):
-                    mode = m_val
-                    label = rest[:-(len(m_str) + 3)].strip()
-                    break
-
-            # 状态
-            icon_map = {" ": STATUS_PENDING, "~": STATUS_IN_PROGRESS, "x": STATUS_COMPLETED, "!": STATUS_BLOCKED}
-            status = icon_map.get(icon, STATUS_PENDING)
-
-            # 确定父节点
-            while len(id_stack) > indent:
-                id_stack.pop()
-
-            parent_id = id_stack[-1] if id_stack else None
-
-            # 构建节点
-            node = {
-                "id": nid,
-                "label": label,
-                "status": status,
-                "mode": mode,
-                "parent": parent_id,
-                "children": [],
-                "decisions": [],
-                "notes": "",
-            }
-
-            self.data["nodes"][nid] = node
-
-            # 更新父节点的 children
-            if parent_id and parent_id in self.data["nodes"]:
-                self.data["nodes"][parent_id]["children"].append(nid)
-
-            id_stack.append(nid)
-            count += 1
-
-        # 设置 title
-        if "1" in self.data["nodes"]:
-            self.data["title"] = self.data["nodes"]["1"]["label"]
-
-        return count
 
     # ── 统计 ───────────────────────────────────────────
 

@@ -170,7 +170,7 @@ def cmd_render(args: dict):
 def cmd_section(args: dict):
     r = Roadmap(args["positional"][0])
     r.load()
-    print(r.render_markdown_section())
+    print(r.render_full_section())
 
 
 def cmd_link(args: dict):
@@ -198,13 +198,6 @@ def cmd_validate(args: dict):
         sys.exit(1)
     else:
         print("Valid.")
-
-
-def cmd_import(args: dict):
-    r = Roadmap(args["positional"][0])
-    count = r.import_from_markdown(args["positional"][1])
-    r.save()
-    print(f"Imported {count} nodes from {args['positional'][1]}")
 
 
 def cmd_path(args: dict):
@@ -255,7 +248,6 @@ COMMANDS = {
     "link": cmd_link,
     "stats": cmd_stats,
     "validate": cmd_validate,
-    "import": cmd_import,
     "path": cmd_path,
     "siblings": cmd_siblings,
     "focus": cmd_focus,
