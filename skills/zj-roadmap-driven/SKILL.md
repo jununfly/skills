@@ -67,10 +67,12 @@ Agent 需要全貌 → 调 `tree` / `decisions` / `section`（全量）按需获
 
 ### 模式含义
 
-| 模式 | 含义 |
-|------|------|
-| `explore` | 子树还在探索中——方向、范围、优先级未定 |
-| `exploit` | 子树方向已确定——正在深入施工 |
+| 模式 | 标签 | 含义 |
+|------|------|------|
+| `explore` | `[X+]` | 子树还在探索中——方向、范围、优先级未定 |
+| `exploit` | `[Y+]` | 子树方向已确定——正在深入施工 |
+
+树形输出中每个节点格式为：`[状态图标][模式标签] 编号. 名称`
 
 ### 节点命名规范
 
@@ -95,6 +97,15 @@ Agent 需要全貌 → 调 `tree` / `decisions` / `section`（全量）按需获
 **语义偏移 vs 措辞润色：**
 - 偏移（触发）：`文章+视频处理` → `文章处理`（范围缩小）、`日志系统` → `文档系统`（主体替换）
 - 润色（不触发）：`文章处理` → `文章处理流水线`（细化措辞）
+
+### 父子状态自动同步
+
+修改节点状态（`update --status`）、新增子节点（`add`）、删除节点（`delete`）后，系统自动向上同步父节点状态：
+
+- **全部子节点 completed → 父节点自动设为 completed**
+- **任意子节点非 completed → 父节点不得为 completed**（自动降级为 `in_progress`）
+
+级联冒泡：同步到父节点后，继续向上检查祖父节点，直到根节点。
 
 ### JSON Demo
 
@@ -197,6 +208,12 @@ python roadmap_cli.py stats <json_path>
 
 # 1. 先在路线图上定位
 python roadmap_cli.py tree roadmap.json 1-1-1
+# 输出:
+# [~][Y+] 1-1-1. 技术文章处理
+# ├── [x][Y+] 1-1-1-1. URL → 存原文
+# ├── [~][Y+] 1-1-1-2. 叠加摘要处理
+# ├── [ ][Y+] 1-1-1-3. 自动打标签
+# └── [ ][Y+] 1-1-1-4. 定时批处理
 
 # 2. 添加新节点
 python roadmap_cli.py add roadmap.json 1-1-1 "文章处理后端流水线" --status in_progress
@@ -204,7 +221,7 @@ python roadmap_cli.py add roadmap.json 1-1-1 "文章处理后端流水线" --sta
 # 3. 记录决策（JSON 内）
 python roadmap_cli.py decide roadmap.json 1-1-1-5 "后端用什么？" "Python + FastAPI" "轻量够用"
 
-# 4. 施工完成后更新状态
+# 4. 施工完成后更新状态 → 父节点自动同步
 python roadmap_cli.py update roadmap.json 1-1-1-5 --status completed --notes "API: POST /articles/convert"
 
 # 5. 更新 Human 的 md 视图（轻量：树+焦点）
